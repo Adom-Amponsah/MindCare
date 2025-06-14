@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 
+// Initialize Firebase
+import './firebase/config'
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <App />

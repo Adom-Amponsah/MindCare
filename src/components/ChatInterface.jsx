@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
-
-const API_TOKEN = import.meta.env.VITE_HUGGINGFACE_API_TOKEN
+import { useAuth } from '../auth/AuthContext'
+import { saveChatMessage, getChatHistory, getUserData, initializeUserCollections } from '../firebase/userService'
+import { generateAIResponse, detectCrisisSituation, getCrisisResponse } from '../services/aiService'
 
 const ChatInterface = ({ onClose }) => {
+  const { currentUser } = useAuth()
   const [messages, setMessages] = useState([
     {
       type: 'bot',
@@ -15,6 +17,69 @@ const ChatInterface = ({ onClose }) => {
   const [showEmergency, setShowEmergency] = useState(false)
   const messagesEndRef = useRef(null)
 
+  // Load chat history from Firestore on component mount
+  useEffect(() => {
+    const loadChatHistory = async () => {
+      if (currentUser) {
+        try {
+          setIsLoading(true)
+          
+          // First check if user document exists in Firestore
+          const userExists = await getUserData(currentUser.uid)
+          
+          // If user document doesn't exist yet, initialize it
+          if (!userExists) {
+            console.log("Creating user document and collections for:", currentUser.uid)
+            await initializeUserCollections(currentUser.uid, {
+              displayName: currentUser.displayName || '',
+              email: currentUser.email || '',
+              phoneNumber: currentUser.phoneNumber || ''
+            })
+          }
+          
+          const history = await getChatHistory(currentUser.uid)
+          
+          if (history.length > 0) {
+            // Convert from Firestore format to component format
+            const formattedHistory = history.map(msg => ({
+              type: msg.role === 'user' ? 'user' : 'bot',
+              content: msg.content,
+              timestamp: msg.timestamp,
+              isEmergency: msg.isEmergency || false,
+              resources: msg.resources || null
+            }))
+            
+            setMessages(formattedHistory)
+          } else {
+            // If no history, create welcome message
+            const welcomeMessage = {
+              type: 'bot',
+              content: "Hello! I'm here to listen and support you. How are you feeling today?",
+              timestamp: new Date()
+            }
+            
+            // Save to Firestore
+            const firestoreWelcomeMsg = {
+              role: 'assistant',
+              content: welcomeMessage.content,
+              timestamp: new Date()
+            }
+            
+            await saveChatMessage(currentUser.uid, firestoreWelcomeMsg)
+            setMessages([welcomeMessage])
+          }
+        } catch (error) {
+          console.error('Error loading chat history:', error)
+          // Keep default welcome message if error
+        } finally {
+          setIsLoading(false)
+        }
+      }
+    }
+    
+    loadChatHistory()
+  }, [currentUser])
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
@@ -25,7 +90,7 @@ const ChatInterface = ({ onClose }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!input.trim()) return
+    if (!input.trim() || !currentUser) return
 
     // Add user message
     const userMessage = { 
@@ -37,58 +102,84 @@ const ChatInterface = ({ onClose }) => {
     setInput('')
     setIsLoading(true)
 
-    // Check for emergency keywords
-    const emergencyKeywords = ['suicide', 'kill myself', 'end it all', 'no reason to live', 'tired of living']
-    const hasEmergency = emergencyKeywords.some(keyword => 
-      input.toLowerCase().includes(keyword)
-    )
-
-    if (hasEmergency) {
-      setShowEmergency(true)
-      setMessages(prev => [...prev, {
-        type: 'bot',
-        content: "I'm concerned about what you're sharing. You're not alone, and help is available right now. Would you like to speak with a crisis counselor?",
-        timestamp: new Date(),
-      }])
-      setIsLoading(false)
-      return
+    // Save to Firestore
+    const firestoreUserMsg = {
+      role: 'user',
+      content: input,
+      timestamp: new Date()
     }
+    await saveChatMessage(currentUser.uid, firestoreUserMsg)
 
-    if (!API_TOKEN) {
-      setMessages(prev => [...prev, {
+    // Check for crisis situation
+    if (detectCrisisSituation(input)) {
+      const crisisResponse = getCrisisResponse()
+      setShowEmergency(true)
+      
+      const botMessage = {
         type: 'bot',
-        content: "API token is missing. Please contact the administrator.",
+        content: crisisResponse.message,
         timestamp: new Date(),
-      }])
+        isEmergency: true,
+        resources: crisisResponse.resources
+      }
+      
+      setMessages(prev => [...prev, botMessage])
+      
+      // Save to Firestore
+      const firestoreBotMsg = {
+        role: 'assistant',
+        content: crisisResponse.message,
+        timestamp: new Date(),
+        isEmergency: true,
+        resources: crisisResponse.resources
+      }
+      await saveChatMessage(currentUser.uid, firestoreBotMsg)
       setIsLoading(false)
       return
     }
 
     try {
-      const response = await fetch('https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${API_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ inputs: input }),
-      })
-
-      const data = await response.json()
+      // Get formatted history for context
+      const historyContext = messages.slice(-10).map(msg => ({
+        role: msg.type === 'user' ? 'user' : 'assistant',
+        content: msg.content
+      }))
+      
+      // Generate AI response using our service
+      const aiResponse = await generateAIResponse(input, historyContext)
       
       // Add bot response
-      setMessages(prev => [...prev, {
+      const botMessage = {
         type: 'bot',
-        content: data.generated_text || "I'm here to listen. Could you tell me more?",
-        timestamp: new Date(),
-      }])
+        content: aiResponse,
+        timestamp: new Date()
+      }
+      setMessages(prev => [...prev, botMessage])
+      
+      // Save to Firestore
+      const firestoreBotMsg = {
+        role: 'assistant',
+        content: aiResponse,
+        timestamp: new Date()
+      }
+      await saveChatMessage(currentUser.uid, firestoreBotMsg)
     } catch (error) {
       console.error('Error:', error)
-      setMessages(prev => [...prev, {
+      
+      const errorMessage = {
         type: 'bot',
         content: "I'm having trouble connecting right now. Please try again in a moment.",
-        timestamp: new Date(),
-      }])
+        timestamp: new Date()
+      }
+      setMessages(prev => [...prev, errorMessage])
+      
+      // Save error message to Firestore
+      const firestoreErrorMsg = {
+        role: 'assistant',
+        content: "I'm having trouble connecting right now. Please try again in a moment.",
+        timestamp: new Date()
+      }
+      await saveChatMessage(currentUser.uid, firestoreErrorMsg)
     }
 
     setIsLoading(false)
@@ -143,6 +234,20 @@ const ChatInterface = ({ onClose }) => {
                 }`}
               >
                 {message.content}
+                
+                {/* Display crisis resources if available */}
+                {message.isEmergency && message.resources && (
+                  <div className="mt-3 border-t border-gray-200 pt-2">
+                    <p className="font-semibold mb-1">Emergency Resources:</p>
+                    <ul className="space-y-1">
+                      {message.resources.map((resource, idx) => (
+                        <li key={idx} className="text-sm">
+                          <span className="font-medium">{resource.name}:</span> {resource.contact} ({resource.available})
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
               <span className="text-xs text-gray-500 mt-1">
                 {formatTimestamp(message.timestamp)}
@@ -174,7 +279,7 @@ const ChatInterface = ({ onClose }) => {
               </svg>
               <div>
                 <h3 className="text-sm font-medium text-red-800">Need Immediate Help?</h3>
-                <p className="text-sm text-red-700">Call our 24/7 crisis hotline: +233 123 456 789</p>
+                <p className="text-sm text-red-700">Call our 24/7 crisis hotline: +233 50 626 3030</p>
               </div>
             </div>
             <button
