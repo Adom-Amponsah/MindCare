@@ -520,7 +520,7 @@ export const generateAIResponse = async (userMessage, conversationHistory = []) 
   try {
     if (!API_TOKEN) {
       console.error("No API token found. Please set VITE_HUGGINGFACE_API_TOKEN in your .env file");
-      return getAdvancedFallbackResponse(userMessage);
+      return getAdvancedFallbackResponse(userMessage, conversationHistory);
     }
 
     // Analyze the conversation
@@ -543,7 +543,7 @@ ${contextualHistory ? `Previous conversation:\n${contextualHistory}\n` : ''}
 
 CURRENT EMOTIONAL STATE: ${analysis.emotion}
 KEY TOPICS: ${analysis.topics.join(', ')}
-CONVERSATION DEPTH: ${conversationContext.sessionDepth} exchanges
+CONVERSATION DEPTH: ${conversationContext.sessionStage} exchanges
 
 CRITICAL INSTRUCTIONS:
 1. NEVER use the same opening phrases repeatedly (no "Oh man", "I hear", "That sounds" if used recently)
@@ -580,7 +580,7 @@ Respond as a skilled therapist would - naturally, with variety, and with genuine
 
     if (!response.ok) {
       console.error(`API error: ${response.status} ${response.statusText}`);
-      return getAdvancedFallbackResponse(userMessage);
+      return getAdvancedFallbackResponse(userMessage, conversationHistory);
     }
 
     const data = await response.json();
@@ -592,14 +592,28 @@ Respond as a skilled therapist would - naturally, with variety, and with genuine
       aiResponse = data.generated_text;
     } else {
       console.error("Unexpected response format:", data);
-      return getAdvancedFallbackResponse(userMessage);
+      return getAdvancedFallbackResponse(userMessage, conversationHistory);
     }
+    
+    // --- SUPPORT GROUP SUGGESTION LOGIC ---
+    // If the user is sad/lonely/anxious (not crisis), append a real support group suggestion
+    if (shouldSuggestSupportGroup(analysis)) {
+      const resourceSuggestion = getSuggestedResources([...conversationHistory, { role: 'user', content: userMessage }]);
+      const supportGroups = resourceSuggestion.resources?.filter(r => r.tags?.includes('support group')) || [];
+      if (supportGroups.length > 0) {
+        const group = supportGroups[0];
+        aiResponse += `\n\nBy the way, sometimes it helps to talk to others who understand what you're going through. Would you be interested in joining a support group like \"${group.title}\"? ${group.description}${group.url ? ` You can join here: ${group.url}` : ''}`;
+      } else {
+        aiResponse += `\n\nBy the way, sometimes it helps to talk to others who understand what you're going through. Would you be interested in joining a support group? I can suggest some options if you'd like.`;
+      }
+    }
+    // --- END SUPPORT GROUP SUGGESTION LOGIC ---
     
     return aiResponse.trim();
     
   } catch (error) {
     console.error("Error generating AI response:", error);
-    return getAdvancedFallbackResponse(userMessage);
+    return getAdvancedFallbackResponse(userMessage, conversationHistory);
   }
 };
 
