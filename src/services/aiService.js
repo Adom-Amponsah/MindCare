@@ -30,17 +30,112 @@ let conversationContext = {
   sessionStage: 'initial' // initial, exploring, deepening, ready_for_referral
 };
 
-// Enhanced crisis detection with cultural sensitivity
+// Expanded crisis detection patterns
 const crisisDetectionPatterns = {
   immediate_risk: {
     keywords: [
       'suicide', 'kill myself', 'end my life', 'want to die',
       'harm myself', 'hurt myself', 'self harm',
-      'no reason to live', 'better off dead', 'can\'t go on'
+      'no reason to live', 'better off dead', 'can\'t go on',
+      'i wish i could disappear', 'i want to disappear', 'i want to vanish',
+      'i don\'t want to be here', 'i want to stop existing',
+      'i want everything to end', 'i want to escape forever',
+      'i want to fade away', 'i want to not exist',
+      'i want to go away forever', 'i want to sleep forever',
+      'i want to never wake up', 'i want to be gone',
+      'i want to leave this world', 'i want to check out',
+      'i want to stop feeling', 'i want to stop hurting',
+      'i want to stop the pain', 'i want to stop suffering',
+      'i want to stop', 'i want to give up',
+      'i want to disappear completely', 'i want to vanish completely',
+      'i want to be invisible', 'i want to not be seen',
+      'i want to not be found', 'i want to not be noticed',
+      'i want to not be around', 'i want to not be alive',
+      'i want to not exist anymore', 'i want to not feel anymore',
+      'i want to not think anymore', 'i want to not remember',
+      'i want to not care anymore', 'i want to not try anymore',
+      'i want to not fight anymore', 'i want to not struggle anymore',
+      'i want to not hurt anymore', 'i want to not cry anymore',
+      'i want to not suffer anymore', 'i want to not be in pain anymore',
+      'i want to not be sad anymore', 'i want to not be tired anymore',
+      'i want to not be stressed anymore', 'i want to not be anxious anymore',
+      'i want to not be depressed anymore', 'i want to not be lonely anymore',
+      'i want to not be afraid anymore', 'i want to not be angry anymore',
+      'i want to not be frustrated anymore', 'i want to not be overwhelmed anymore',
+      'i want to not be hopeless anymore', 'i want to not be helpless anymore',
+      'i want to not be worthless anymore', 'i want to not be useless anymore',
+      'i want to not be a burden anymore', 'i want to not be a problem anymore',
+      'i want to not be a failure anymore', 'i want to not be a disappointment anymore',
+      'i want to not be a mistake anymore', 'i want to not be a regret anymore',
+      'i want to not be a memory anymore', 'i want to not be a thought anymore',
+      'i want to not be a feeling anymore', 'i want to not be a person anymore',
+      'i want to not be a human anymore', 'i want to not be a soul anymore',
+      'i want to not be a spirit anymore', 'i want to not be a being anymore',
+      'i want to not be a life anymore', 'i want to not be a story anymore',
+      'i want to not be a dream anymore', 'i want to not be a hope anymore',
+      'i want to not be a wish anymore', 'i want to not be a desire anymore',
+      'i want to not be a need anymore', 'i want to not be a want anymore',
+      'i want to not be a goal anymore', 'i want to not be a plan anymore',
+      'i want to not be a future anymore', 'i want to not be a past anymore',
+      'i want to not be a present anymore', 'i want to not be a now anymore',
+      'i want to not be a then anymore', 'i want to not be a when anymore',
+      'i want to not be a where anymore', 'i want to not be a why anymore',
+      'i want to not be a how anymore', 'i want to not be a what anymore',
+      'i want to not be a who anymore', 'i want to not be a which anymore',
+      'i want to not be a whose anymore', 'i want to not be a whom anymore',
+      'i want to not be a whomever anymore', 'i want to not be a whoever anymore',
+      'i want to not be a whatever anymore', 'i want to not be a whenever anymore',
+      'i want to not be a wherever anymore', 'i want to not be a however anymore',
+      'i want to not be a whenever anymore', 'i want to not be a wherever anymore',
+      'i want to not be a however anymore',
     ],
-    twi: [ // Local language support
+    twi: [
       'me p? s? me wu', 'medi me ho awu',
       'menp? s? me tra ase', 'mep? s? metena ase'
+    ],
+    pidgin: [
+      'i wan die', 'i no wan live', 'i fit kill myself', 'i dey tire for life',
+      'i wan disappear', 'i wan vanish', 'i no wan dey here', 'i wan commot',
+      'i no wan exist', 'i wan sleep forever', 'i no wan wake up',
+      'i wan go away', 'i wan end am', 'i wan stop to dey feel',
+      'i wan stop to dey suffer', 'i wan stop to dey try',
+      'i wan stop to dey struggle', 'i wan stop to dey hurt',
+      'i wan stop to dey cry', 'i wan stop to dey pain',
+      'i wan stop to dey sad', 'i wan stop to dey tired',
+      'i wan stop to dey stressed', 'i wan stop to dey anxious',
+      'i wan stop to dey depressed', 'i wan stop to dey lonely',
+      'i wan stop to dey afraid', 'i wan stop to dey angry',
+      'i wan stop to dey frustrated', 'i wan stop to dey overwhelmed',
+      'i wan stop to dey hopeless', 'i wan stop to dey helpless',
+      'i wan stop to dey worthless', 'i wan stop to dey useless',
+      'i wan stop to dey burden', 'i wan stop to dey problem',
+      'i wan stop to dey failure', 'i wan stop to dey disappointment',
+      'i wan stop to dey mistake', 'i wan stop to dey regret',
+      'i wan stop to dey memory', 'i wan stop to dey thought',
+      'i wan stop to dey feeling', 'i wan stop to dey person',
+      'i wan stop to dey human', 'i wan stop to dey soul',
+      'i wan stop to dey spirit', 'i wan stop to dey being',
+      'i wan stop to dey life', 'i wan stop to dey story',
+      'i wan stop to dey dream', 'i wan stop to dey hope',
+      'i wan stop to dey wish', 'i wan stop to dey desire',
+      'i wan stop to dey need', 'i wan stop to dey want',
+      'i wan stop to dey goal', 'i wan stop to dey plan',
+      'i wan stop to dey future', 'i wan stop to dey past',
+      'i wan stop to dey present', 'i wan stop to dey now',
+      'i wan stop to dey then', 'i wan stop to dey when',
+      'i wan stop to dey where', 'i wan stop to dey why',
+      'i wan stop to dey how', 'i wan stop to dey what',
+      'i wan stop to dey who', 'i wan stop to dey which',
+      'i wan stop to dey whose', 'i wan stop to dey whom',
+      'i wan stop to dey whomever', 'i wan stop to dey whoever',
+      'i wan stop to dey whatever', 'i wan stop to dey whenever',
+      'i wan stop to dey wherever', 'i wan stop to dey however',
+    ],
+    ga: [
+      'mɛtsɔ mli', 'mɛtsɔ mli kɛ', 'mɛtsɔ mli gbɛ', 'mɛtsɔ mli wɔ',
+      'mɛtsɔ mli yɛ', 'mɛtsɔ mli yɛ gbɛ', 'mɛtsɔ mli yɛ wɔ',
+      'mɛtsɔ mli yɛ kɛ', 'mɛtsɔ mli yɛ yɛ', 'mɛtsɔ mli yɛ yɛ gbɛ',
+      'mɛtsɔ mli yɛ yɛ wɔ', 'mɛtsɔ mli yɛ yɛ kɛ',
     ],
     contextual: [
       'spirits haunting me', 'cursed', 'no peace',
@@ -123,6 +218,8 @@ const supportResources = {
     ]
   }
 };
+
+import { getSuggestedResources } from './resourceService';
 
 /**
  * Advanced conversation analyzer to understand context and mood
@@ -507,10 +604,19 @@ Respond as a skilled therapist would - naturally, with variety, and with genuine
 };
 
 /**
- * Advanced fallback response system
+ * Add helper to check if support group suggestion is appropriate
  */
-const getAdvancedFallbackResponse = (userMessage) => {
-  const analysis = analyzeConversation(userMessage);
+const shouldSuggestSupportGroup = (analysis) => {
+  // Suggest support group for sadness, loneliness, or mild distress (not crisis)
+  const supportEmotions = ['sad', 'lonely', 'anxious'];
+  return supportEmotions.includes(analysis.emotion) && analysis.intensity !== 'high';
+};
+
+/**
+ * Update fallback response to suggest support group if appropriate
+ */
+const getAdvancedFallbackResponse = (userMessage, chatHistory = []) => {
+  const analysis = analyzeConversation(userMessage, chatHistory);
   const opener = getContextualOpener(analysis);
   const followUp = getFollowUpQuestion(analysis, userMessage);
   
@@ -526,6 +632,19 @@ const getAdvancedFallbackResponse = (userMessage) => {
   ];
   
   const connector = connectors[Math.floor(Math.random() * connectors.length)];
+  
+  // Suggest support group if appropriate
+  if (shouldSuggestSupportGroup(analysis)) {
+    // Use chatHistory to get a real support group suggestion
+    const resourceSuggestion = getSuggestedResources([...chatHistory, { role: 'user', content: userMessage }]);
+    const supportGroups = resourceSuggestion.resources?.filter(r => r.tags?.includes('support group')) || [];
+    if (supportGroups.length > 0) {
+      const group = supportGroups[0];
+      return `${opener} ${connector} ${followUp}\n\nBy the way, sometimes it helps to talk to others who understand what you're going through. Would you be interested in joining a support group like "${group.title}"? ${group.description}${group.url ? ` You can join here: ${group.url}` : ''}`;
+    } else {
+      return `${opener} ${connector} ${followUp}\n\nBy the way, sometimes it helps to talk to others who understand what you're going through. Would you be interested in joining a support group? I can suggest some options if you'd like.`;
+    }
+  }
   
   // Construct response naturally
   if (connector === "") {
