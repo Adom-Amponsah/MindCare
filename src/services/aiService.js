@@ -1,5 +1,5 @@
-// ADVANCED HUMAN-LIKE AI COUNSELOR - YC GRADE SOLUTION
-// Built for seamless, natural conversations that feel genuinely human
+// ADVANCED HUMAN-LIKE AI COUNSELOR - CULTURALLY AWARE MENTAL HEALTH SUPPORT
+// Built for Ghanaian context with medical and spiritual support integration
 
 // Get API token from environment variables
 const API_TOKEN = import.meta.env.VITE_HUGGINGFACE_API_TOKEN;
@@ -7,13 +7,121 @@ const API_TOKEN = import.meta.env.VITE_HUGGINGFACE_API_TOKEN;
 // Model configuration
 const MODEL_URL = "https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1";
 
-// Conversation state management
+// Enhanced conversation state management with cultural context
 let conversationContext = {
   emotionalTone: 'neutral',
   keyTopics: [],
   responseHistory: [],
   userMood: 'unknown',
-  sessionDepth: 0
+  engagementMetrics: {
+    topicsExplored: new Set(),
+    emotionalDepth: 0, // Tracks how deeply we've explored emotions
+    userOpenness: 0, // Measures how much the user is sharing
+    readinessForHelp: 0, // Tracks user's receptiveness to professional help
+    crisisIndicators: [], // Tracks any concerning patterns
+    lastTopicResolution: null, // Tracks if we've properly explored current topic
+    spiritualContext: null, // Tracks spiritual beliefs/preferences
+    culturalContext: {
+      language: 'en', // Support for local languages
+      region: null,  // Track user's region for local resource matching
+      beliefs: []    // Understanding of cultural/spiritual beliefs
+    }
+  },
+  sessionStage: 'initial' // initial, exploring, deepening, ready_for_referral
+};
+
+// Enhanced crisis detection with cultural sensitivity
+const crisisDetectionPatterns = {
+  immediate_risk: {
+    keywords: [
+      'suicide', 'kill myself', 'end my life', 'want to die',
+      'harm myself', 'hurt myself', 'self harm',
+      'no reason to live', 'better off dead', 'can\'t go on'
+    ],
+    twi: [ // Local language support
+      'me p? s? me wu', 'medi me ho awu',
+      'menp? s? me tra ase', 'mep? s? metena ase'
+    ],
+    contextual: [
+      'spirits haunting me', 'cursed', 'no peace',
+      'voices telling me', 'evil spirits'
+    ]
+  },
+  spiritual_distress: {
+    keywords: [
+      'cursed', 'spiritual attack', 'witchcraft',
+      'evil eye', 'bad spirit', 'haunted',
+      'ancestral curse', 'spiritual problem'
+    ]
+  },
+  cultural_pressure: {
+    keywords: [
+      'family name', 'bring shame', 'community will judge',
+      'elders disapprove', 'against our culture',
+      'what will people say'
+    ]
+  }
+};
+
+// Resource categories with cultural sensitivity
+const supportResources = {
+  immediate_crisis: {
+    hotlines: [
+      {
+        name: "Ghana National Suicide Prevention Helpline",
+        contact: "+233 50 626 3030",
+        available: "24/7",
+        languages: ["English", "Twi"]
+      }
+    ],
+    emergency: [
+      {
+        name: "Mental Health Authority Ghana",
+        contact: "+233 30 251 3100",
+        available: "24/7",
+        type: "Emergency Response"
+      }
+    ]
+  },
+  spiritual_support: {
+    christian: [
+      {
+        name: "Christian Counseling Network Ghana",
+        contact: "+233 XX XXX XXXX",
+        type: "Faith-based Counseling"
+      }
+    ],
+    traditional: [
+      {
+        name: "Cultural Healing Center",
+        contact: "+233 XX XXX XXXX",
+        type: "Traditional Support"
+      }
+    ],
+    islamic: [
+      {
+        name: "Islamic Counseling Services",
+        contact: "+233 XX XXX XXXX",
+        type: "Faith-based Counseling"
+      }
+    ]
+  },
+  professional_help: {
+    medical: [
+      {
+        name: "Ghana Psychological Association",
+        contact: "+233 XX XXX XXXX",
+        type: "Professional Counseling"
+      }
+    ],
+    community: [
+      {
+        name: "Community Mental Health Support",
+        contact: "+233 XX XXX XXXX",
+        type: "Community Support"
+      }
+    ]
+  }
 };
 
 /**
@@ -39,24 +147,88 @@ const analyzeConversation = (userMessage, history = []) => {
     }
   }
   
-  // Extract key topics
+  // Enhanced topic extraction
   const topics = [];
-  if (message.includes('parent') || message.includes('mom') || message.includes('dad')) topics.push('family');
-  if (message.includes('school') || message.includes('work')) topics.push('performance');
-  if (message.includes('friend') || message.includes('relationship')) topics.push('social');
-  if (message.includes('childish') || message.includes('immature')) topics.push('validation');
+  const topicKeywords = {
+    family: ['parent', 'mom', 'dad', 'sister', 'brother', 'family'],
+    relationships: ['friend', 'relationship', 'partner', 'boyfriend', 'girlfriend'],
+    work: ['school', 'work', 'job', 'career', 'study'],
+    selfEsteem: ['worthless', 'stupid', 'failure', 'cant do anything', 'not good enough'],
+    trauma: ['abuse', 'hurt', 'traumatic', 'incident', 'happened to me'],
+    identity: ['who am i', 'purpose', 'meaning', 'lost', 'direction']
+  };
+
+  for (const [topic, keywords] of Object.entries(topicKeywords)) {
+    if (keywords.some(keyword => message.includes(keyword))) {
+      topics.push(topic);
+      conversationContext.engagementMetrics.topicsExplored.add(topic);
+    }
+  }
+
+  // Measure user openness
+  const opennessCues = [
+    message.length > 100, // Longer messages
+    message.includes('feel'),
+    message.includes('think'),
+    message.includes('because'),
+    message.includes('remember'),
+    topics.length > 0
+  ];
   
-  // Update context
-  conversationContext.emotionalTone = dominantEmotion;
-  conversationContext.keyTopics = [...new Set([...conversationContext.keyTopics, ...topics])];
-  conversationContext.sessionDepth++;
+  const opennessScore = opennessCues.filter(Boolean).length;
+  conversationContext.engagementMetrics.userOpenness = 
+    Math.min(10, conversationContext.engagementMetrics.userOpenness + opennessScore);
+
+  // Assess emotional depth
+  if (dominantEmotion !== 'neutral') {
+    conversationContext.engagementMetrics.emotionalDepth += 1;
+  }
+
+  // Check readiness for professional help
+  const helpReadinessCues = [
+    message.includes('help'),
+    message.includes('therapy'),
+    message.includes('professional'),
+    message.includes('advice'),
+    message.includes('what should i do'),
+    conversationContext.engagementMetrics.emotionalDepth > 5
+  ];
+
+  const readinessScore = helpReadinessCues.filter(Boolean).length;
+  conversationContext.engagementMetrics.readinessForHelp = 
+    Math.min(10, conversationContext.engagementMetrics.readinessForHelp + readinessScore);
+
+  // Update session stage based on engagement
+  updateSessionStage();
   
   return {
     emotion: dominantEmotion,
     topics: topics,
     intensity: getEmotionalIntensity(message),
-    needsValidation: message.includes('childish') || message.includes('immature') || message.includes('stupid')
+    needsValidation: message.includes('childish') || message.includes('immature') || message.includes('stupid'),
+    engagementLevel: {
+      openness: conversationContext.engagementMetrics.userOpenness,
+      emotionalDepth: conversationContext.engagementMetrics.emotionalDepth,
+      readinessForHelp: conversationContext.engagementMetrics.readinessForHelp
+    }
   };
+};
+
+/**
+ * Update the session stage based on engagement metrics
+ */
+const updateSessionStage = () => {
+  const metrics = conversationContext.engagementMetrics;
+  
+  if (metrics.emotionalDepth > 7 && metrics.readinessForHelp > 7) {
+    conversationContext.sessionStage = 'ready_for_referral';
+  } else if (metrics.emotionalDepth > 4 && metrics.userOpenness > 6) {
+    conversationContext.sessionStage = 'deepening';
+  } else if (metrics.userOpenness > 3) {
+    conversationContext.sessionStage = 'exploring';
+  } else {
+    conversationContext.sessionStage = 'initial';
+  }
 };
 
 /**
@@ -76,61 +248,82 @@ const getEmotionalIntensity = (message) => {
  * Generate contextually aware response starters
  */
 const getContextualOpener = (analysis) => {
-  const { emotion, intensity, needsValidation, topics } = analysis;
-  const depth = conversationContext.sessionDepth;
+  const { emotion, intensity, needsValidation } = analysis;
+  const stage = conversationContext.sessionStage;
   
   // Avoid repetition - track what we've used
   if (!conversationContext.responseHistory) conversationContext.responseHistory = [];
   
   let openers = [];
   
-  // First response vs deeper conversation
-  if (depth <= 2) {
-    // Initial responses
-    switch (emotion) {
-      case 'frustrated':
-        openers = [
-          "That sounds incredibly frustrating.",
-          "I can hear the frustration in what you're saying.",
-          "Wow, that would really get to me too."
-        ];
-        break;
-      case 'sad':
-        openers = [
-          "That's really painful to hear.",
-          "I can feel how much this is hurting you.",
-          "That sounds heartbreaking."
-        ];
-        break;
-      case 'lonely':
-        openers = [
-          "That loneliness sounds overwhelming.",
-          "Feeling disconnected like that is so hard.",
-          "That isolation must be really difficult."
-        ];
-        break;
-      default:
-        openers = [
-          "That sounds really tough.",
-          "I hear you.",
-          "That's a lot to deal with."
-        ];
-    }
-  } else {
-    // Deeper conversation - more personal
-    if (needsValidation) {
+  // Stage-appropriate responses
+  switch(stage) {
+    case 'initial':
       openers = [
-        "Being called childish really stings, doesn't it?",
-        "That must feel like such a dismissal of your feelings.",
-        "When people label us like that, it's like they're not really seeing us."
+        "I'm here to listen and understand what you're going through.",
+        "Thank you for sharing that with me.",
+        "I appreciate you opening up about this.",
+        "I can tell this isn't easy to talk about."
       ];
-    } else {
+      break;
+    
+    case 'exploring':
+      switch (emotion) {
+        case 'frustrated':
+          openers = [
+            "That level of frustration makes so much sense given what you're dealing with.",
+            "I can really hear the frustration in what you're sharing.",
+            "It's completely understandable to feel frustrated about this."
+          ];
+          break;
+        case 'sad':
+          openers = [
+            "The sadness in your words really comes through.",
+            "That sounds incredibly painful to deal with.",
+            "I can feel how much this is affecting you."
+          ];
+          break;
+        case 'lonely':
+          openers = [
+            "That sense of loneliness you're describing sounds really heavy.",
+            "It must be so hard feeling this disconnected.",
+            "Feeling alone like this can be really overwhelming."
+          ];
+          break;
+        default:
+          openers = [
+            "I'm really trying to understand your experience.",
+            "The way you describe this helps me understand better.",
+            "Thank you for helping me understand what this is like for you."
+          ];
+      }
+      break;
+    
+    case 'deepening':
+      if (needsValidation) {
+        openers = [
+          "Your feelings about this are completely valid.",
+          "I want you to know that your reaction makes perfect sense.",
+          "Anyone in your situation would feel this way.",
+          "These feelings you're having are so important to acknowledge."
+        ];
+      } else {
+        openers = [
+          "As we talk more, I'm understanding better how this affects you.",
+          "The more you share, the more I see how complex this situation is.",
+          "I'm noticing how many layers there are to what you're experiencing."
+        ];
+      }
+      break;
+    
+    case 'ready_for_referral':
       openers = [
-        "I'm still thinking about what you shared earlier...",
-        "This is clearly something that's been weighing on you.",
-        "There's so much more to this story, isn't there?"
+        "I really value how open you've been about all of this.",
+        "You've shared so much about your experience.",
+        "We've explored a lot together, and I'm wondering something.",
+        "Given everything you've shared, I have a thought I'd like to offer."
       ];
-    }
+      break;
   }
   
   // Filter out recently used openers
@@ -145,7 +338,7 @@ const getContextualOpener = (analysis) => {
   // Track usage
   conversationContext.responseHistory.push(selectedOpener);
   if (conversationContext.responseHistory.length > 5) {
-    conversationContext.responseHistory.shift(); // Keep only last 5
+    conversationContext.responseHistory.shift();
   }
   
   return selectedOpener;
@@ -156,33 +349,68 @@ const getContextualOpener = (analysis) => {
  */
 const getFollowUpQuestion = (analysis, userMessage) => {
   const { emotion, topics, needsValidation } = analysis;
+  const stage = conversationContext.sessionStage;
+  const metrics = conversationContext.engagementMetrics;
   
-  if (needsValidation && topics.includes('family')) {
+  // Stage-appropriate questions
+  if (stage === 'initial') {
     const questions = [
-      "What does 'childish' even mean to them? Like, what specific things trigger that response?",
-      "How do you usually respond when they say that to you?",
-      "Do they explain what they want you to do differently, or just... criticize?",
-      "When did this pattern start? Has it always been like this?"
+      "Could you tell me more about what brought this up for you?",
+      "What made you want to talk about this today?",
+      "How long have you been feeling this way?",
+      "What's on your mind as you share this with me?"
     ];
     return questions[Math.floor(Math.random() * questions.length)];
   }
   
-  if (topics.includes('family') && emotion === 'sad') {
+  if (stage === 'exploring') {
+    if (needsValidation && topics.includes('family')) {
+      const questions = [
+        "How do those words make you feel when they say that to you?",
+        "What would you want them to understand about how this affects you?",
+        "What kind of support would be most helpful right now?",
+        "How do you usually cope when this happens?"
+      ];
+      return questions[Math.floor(Math.random() * questions.length)];
+    }
+    
+    if (topics.includes('family') && emotion === 'sad') {
+      const questions = [
+        "What would feeling supported by them look like to you?",
+        "How has this affected your relationship with them?",
+        "What do you think they might not understand about your experience?",
+        "When did you first notice this pattern in your relationship?"
+      ];
+      return questions[Math.floor(Math.random() * questions.length)];
+    }
+  }
+  
+  if (stage === 'deepening') {
     const questions = [
-      "What would it look like if they actually showed you love? Like, what would be different?",
-      "Are there moments when you do feel their love, or is it pretty consistently like this?",
-      "How does this affect how you see yourself?",
-      "What do you think they're really trying to communicate when they react this way?"
+      "As you reflect on this, what feelings come up for you?",
+      "What do you think is at the core of these feelings?",
+      "How has this experience shaped how you see yourself?",
+      "What would healing or resolution look like for you?"
     ];
     return questions[Math.floor(Math.random() * questions.length)];
   }
   
-  // Generic deep questions
+  if (stage === 'ready_for_referral' && metrics.readinessForHelp > 7) {
+    const questions = [
+      "Have you ever thought about talking to someone professionally about this?",
+      "Would you be open to exploring some additional support options?",
+      "What are your thoughts about getting some extra support with this?",
+      "How would you feel about talking with someone who specializes in these kinds of situations?"
+    ];
+    return questions[Math.floor(Math.random() * questions.length)];
+  }
+  
+  // Default deep questions
   const questions = [
-    "What's the hardest part about all of this for you?",
-    "How long has this been going on?",
-    "What goes through your mind when this happens?",
-    "How do you usually cope with these feelings?"
+    "What's the hardest part about this for you?",
+    "How do these feelings show up in your daily life?",
+    "What helps you cope when things get really difficult?",
+    "What would be most helpful for you right now?"
   ];
   
   return questions[Math.floor(Math.random() * questions.length)];
@@ -316,7 +544,21 @@ export const resetConversationContext = () => {
     keyTopics: [],
     responseHistory: [],
     userMood: 'unknown',
-    sessionDepth: 0
+    engagementMetrics: {
+      topicsExplored: new Set(),
+      emotionalDepth: 0,
+      userOpenness: 0,
+      readinessForHelp: 0,
+      crisisIndicators: [],
+      lastTopicResolution: null,
+      spiritualContext: null,
+      culturalContext: {
+        language: 'en',
+        region: null,
+        beliefs: []
+      }
+    },
+    sessionStage: 'initial'
   };
 };
 
@@ -328,38 +570,90 @@ export const getConversationInsights = () => {
 };
 
 /**
- * Detect if a message indicates a crisis situation
+ * Enhanced crisis detection with cultural context
  */
 export const detectCrisisSituation = (message) => {
   if (!message) return false;
   
   const lowerMessage = message.toLowerCase();
-  const crisisKeywords = [
-    'suicide', 'kill myself', 'end my life', 'want to die',
-    'harm myself', 'hurt myself', 'self harm',
-    'no reason to live', 'better off dead', 'can\'t go on'
-  ];
+  let crisisLevel = 0;
+  let crisisType = null;
   
-  return crisisKeywords.some(keyword => lowerMessage.includes(keyword));
+  // Check immediate risk patterns
+  for (const [type, patterns] of Object.entries(crisisDetectionPatterns)) {
+    for (const category in patterns) {
+      const matches = patterns[category].filter(keyword => 
+        lowerMessage.includes(keyword.toLowerCase())
+      );
+      
+      if (matches.length > 0) {
+        crisisLevel += matches.length;
+        crisisType = type;
+        
+        // Immediate response for suicide-related crisis
+        if (type === 'immediate_risk') {
+          return {
+            isActive: true,
+            level: 'severe',
+            type: crisisType,
+            requiresImmediate: true
+          };
+        }
+      }
+    }
+  }
+  
+  return {
+    isActive: crisisLevel > 0,
+    level: crisisLevel > 2 ? 'high' : crisisLevel > 0 ? 'moderate' : 'none',
+    type: crisisType,
+    requiresImmediate: false
+  };
 };
 
 /**
- * Get crisis resources and response
+ * Get culturally appropriate crisis response
  */
-export const getCrisisResponse = () => {
-  return {
-    message: "I'm really worried about what you just shared. These feelings you're having - they're telling me you're in a lot of pain right now. I need you to know that there are people who can help you through this moment. Can you reach out to someone right now?",
-    resources: [
-      {
-        name: "Ghana National Suicide Prevention Helpline",
-        contact: "+233 50 626 3030",
-        available: "24/7"
+export const getCrisisResponse = (crisisAssessment) => {
+  const { type, level } = crisisAssessment;
+  
+  // Immediate suicide risk response
+  if (type === 'immediate_risk' && level === 'severe') {
+    return {
+      message: `I am deeply concerned about what you're sharing. Your life is precious and valuable. 
+I need you to know that help is available right now. Can you please reach out to one of these support services immediately? 
+They are here to help you 24/7 and understand what you're going through.`,
+      resources: supportResources.immediate_crisis,
+      priority: 'urgent'
+    };
+  }
+  
+  // Spiritual distress response
+  if (type === 'spiritual_distress') {
+    return {
+      message: `I hear that you're experiencing spiritual challenges. This is a very real and valid concern. 
+Would you like to connect with someone who understands both spiritual and emotional healing?`,
+      resources: {
+        ...supportResources.spiritual_support,
+        ...supportResources.professional_help
       },
-      {
-        name: "Mental Health Authority Ghana",
-        contact: "+233 30 251 3100",
-        available: "Working hours"
-      }
-    ]
+      priority: 'high'
+    };
+  }
+  
+  // Cultural pressure response
+  if (type === 'cultural_pressure') {
+    return {
+      message: `I understand the weight of cultural expectations and community judgment. 
+It's okay to seek help while respecting our cultural values. Would you like to speak with someone who understands these challenges?`,
+      resources: supportResources.professional_help,
+      priority: 'moderate'
+    };
+  }
+  
+  return {
+    message: `I'm here to listen and support you. Would you like to tell me more about what you're experiencing?`,
+    resources: null,
+    priority: 'standard'
   };
 };
