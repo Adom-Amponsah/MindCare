@@ -13,6 +13,7 @@ import {
   limit as firestoreLimit
 } from 'firebase/firestore';
 import { db } from './config';
+import { resetConversationContext } from '../services/aiService';
 
 // Collection references - these should match exactly what's in Firebase console
 const USERS_COLLECTION = 'users';
@@ -154,22 +155,45 @@ export const recordUserSession = async (uid, sessionData = {}) => {
 };
 
 /**
- * Create a new conversation
- * @param {string} uid - User ID
- * @param {string} title - Conversation title
- * @returns {string} - The new conversation ID
+ * Create a new conversation with context
  */
 export const createNewConversation = async (uid, title = "New Conversation") => {
   try {
     const conversationsRef = collection(db, USERS_COLLECTION, uid, CONVERSATIONS_COLLECTION);
-    
+    // Get default context from aiService
+    let defaultContext = null;
+    try {
+      defaultContext = resetConversationContext ? resetConversationContext() : null;
+    } catch (e) {
+      defaultContext = null;
+    }
     const conversationData = {
       title,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-      messageCount: 0
+      messageCount: 0,
+      context: defaultContext || {
+        emotionalTone: 'neutral',
+        keyTopics: [],
+        responseHistory: [],
+        userMood: 'unknown',
+        engagementMetrics: {
+          topicsExplored: [],
+          emotionalDepth: 0,
+          userOpenness: 0,
+          readinessForHelp: 0,
+          crisisIndicators: [],
+          lastTopicResolution: null,
+          spiritualContext: null,
+          culturalContext: {
+            language: 'en',
+            region: null,
+            beliefs: []
+          }
+        },
+        sessionStage: 'initial'
+      }
     };
-    
     const docRef = await addDoc(conversationsRef, conversationData);
     return docRef.id;
   } catch (error) {
@@ -453,6 +477,67 @@ export const updateUserProfile = async (uid, profileData) => {
     return true;
   } catch (error) {
     console.error('Error updating user profile:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get the context for a conversation
+ */
+export const getConversationContext = async (uid, conversationId) => {
+  try {
+    const conversationRef = doc(db, USERS_COLLECTION, uid, CONVERSATIONS_COLLECTION, conversationId);
+    const conversationSnap = await getDoc(conversationRef);
+    if (conversationSnap.exists()) {
+      // If context does not exist, create it
+      if (!conversationSnap.data().context) {
+        const defaultContext = {
+          emotionalTone: 'neutral',
+          keyTopics: [],
+          responseHistory: [],
+          userMood: 'unknown',
+          engagementMetrics: {
+            topicsExplored: [],
+            emotionalDepth: 0,
+            userOpenness: 0,
+            readinessForHelp: 0,
+            crisisIndicators: [],
+            lastTopicResolution: null,
+            spiritualContext: null,
+            culturalContext: {
+              language: 'en',
+              region: null,
+              beliefs: []
+            }
+          },
+          sessionStage: 'initial'
+        };
+        await updateDoc(conversationRef, { context: defaultContext });
+        return defaultContext;
+      }
+      return conversationSnap.data().context;
+    } else {
+      return null;
+    }
+  } catch (error) {
+    console.error('Error getting conversation context:', error);
+    throw error;
+  }
+};
+
+/**
+ * Update the context for a conversation
+ */
+export const updateConversationContext = async (uid, conversationId, context) => {
+  try {
+    const conversationRef = doc(db, USERS_COLLECTION, uid, CONVERSATIONS_COLLECTION, conversationId);
+    await updateDoc(conversationRef, {
+      context,
+      updatedAt: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error updating conversation context:', error);
     throw error;
   }
 }; 

@@ -657,3 +657,27 @@ It's okay to seek help while respecting our cultural values. Would you like to s
     priority: 'standard'
   };
 };
+con
+/**
+ * Export the current conversation context as a plain object (for Firestore)
+ */
+export const exportConversationContext = () => {
+  // Convert Set to Array for Firestore compatibility
+  const ctx = JSON.parse(JSON.stringify(conversationContext));
+  if (ctx.engagementMetrics && ctx.engagementMetrics.topicsExplored instanceof Set) {
+    ctx.engagementMetrics.topicsExplored = Array.from(ctx.engagementMetrics.topicsExplored);
+  }
+  return ctx;
+};
+
+/**
+ * Import a conversation context object (from Firestore) and set it as the current context
+ */
+export const importConversationContext = (ctx) => {
+  if (!ctx) return;
+  // Convert topicsExplored back to Set if it's an array
+  if (ctx.engagementMetrics && Array.isArray(ctx.engagementMetrics.topicsExplored)) {
+    ctx.engagementMetrics.topicsExplored = new Set(ctx.engagementMetrics.topicsExplored);
+  }
+  conversationContext = ctx;
+};

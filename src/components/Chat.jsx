@@ -6,9 +6,11 @@ import {
   getConversationMessages, 
   createNewConversation,
   addMessageToConversation,
-  updateConversationTitle
+  updateConversationTitle,
+  getConversationContext,
+  updateConversationContext
 } from '../firebase/userService';
-import { generateAIResponse, detectCrisisSituation, getCrisisResponse } from '../services/aiService';
+import { generateAIResponse, detectCrisisSituation, getCrisisResponse, getConversationInsights, resetConversationContext, importConversationContext, exportConversationContext } from '../services/aiService';
 import { getSuggestedResources } from '../services/resourceService';
 import ResourceSuggestion from './ResourceSuggestion';
 
@@ -24,6 +26,7 @@ const Chat = ({ onClose }) => {
   const [newTitle, setNewTitle] = useState('');
   const [showDrawer, setShowDrawer] = useState(false);
   const chatContainerRef = useRef(null);
+  const [conversationContext, setConversationContext] = useState(null);
 
   // Detect if mobile
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -94,25 +97,35 @@ const Chat = ({ onClose }) => {
     loadConversations();
   }, [currentUser, userData]);
 
-  // Load messages for active conversation
+  // Load messages and context for active conversation
   useEffect(() => {
-    const loadMessages = async () => {
+    const loadMessagesAndContext = async () => {
       if (currentUser && activeConversationId) {
         try {
           setLoading(true);
           const messages = await getConversationMessages(currentUser.uid, activeConversationId);
           setChatHistory(messages);
+          // Load context
+          let ctx = await getConversationContext(currentUser.uid, activeConversationId);
+          if (!ctx) {
+            // If context does not exist, create and save it
+            ctx = resetConversationContext();
+            await updateConversationContext(currentUser.uid, activeConversationId, exportConversationContext());
+          } else {
+            importConversationContext(ctx);
+          }
+          setConversationContext(getConversationInsights());
         } catch (error) {
-          console.error('Error loading messages:', error);
+          console.error('Error loading messages/context:', error);
           setChatHistory([]);
+          setConversationContext(null);
         } finally {
           setLoading(false);
         }
       }
     };
-    
     if (activeConversationId) {
-      loadMessages();
+      loadMessagesAndContext();
     }
   }, [currentUser, activeConversationId]);
 
@@ -123,29 +136,21 @@ const Chat = ({ onClose }) => {
 
   const handleSend = async (e) => {
     e.preventDefault();
-    
     if (!message.trim() || !currentUser || !activeConversationId) return;
-    
-    // Add user message to chat
     const userMessage = { 
       role: 'user', 
       content: message,
       timestamp: new Date()
     };
-    
     setChatHistory(prevHistory => [...prevHistory, userMessage]);
     setMessage('');
-    
-    // Save user message to Firestore
     await addMessageToConversation(currentUser.uid, activeConversationId, userMessage);
-    
-    // Show typing indicator
     setIsTyping(true);
-    
     try {
-      // Check for crisis situation
-      if (detectCrisisSituation(message)) {
-        const crisisResponse = getCrisisResponse();
+      // Crisis detection
+      const crisisAssessment = detectCrisisSituation(message);
+      if (crisisAssessment && crisisAssessment.isActive) {
+        const crisisResponse = getCrisisResponse(crisisAssessment);
         const assistantMessage = { 
           role: 'assistant', 
           content: crisisResponse.message,
@@ -153,44 +158,40 @@ const Chat = ({ onClose }) => {
           isEmergency: true,
           resources: crisisResponse.resources
         };
-        
         setChatHistory(prevHistory => [...prevHistory, assistantMessage]);
         await addMessageToConversation(currentUser.uid, activeConversationId, assistantMessage);
       } else {
-        // Get AI response
+        // Pass context to AI (if needed, you can set aiService.js context here)
         const aiResponse = await generateAIResponse(
           message, 
-          chatHistory.slice(-10) // Send last 10 messages for context
+          chatHistory.slice(-10)
         );
-        
-        // Get resource suggestions based on conversation
+        // Get updated context from aiService
+        const updatedContext = exportConversationContext();
+        setConversationContext(updatedContext);
+        await updateConversationContext(currentUser.uid, activeConversationId, updatedContext);
+        // Get resource suggestions
         const updatedChatHistory = [...chatHistory, userMessage];
         const resourceSuggestion = getSuggestedResources(updatedChatHistory);
-        
         const assistantMessage = { 
           role: 'assistant', 
           content: aiResponse,
           timestamp: new Date(),
           resourceSuggestion: resourceSuggestion.shouldSuggest ? resourceSuggestion : null
         };
-        
         setChatHistory(prevHistory => [...prevHistory, assistantMessage]);
         await addMessageToConversation(currentUser.uid, activeConversationId, assistantMessage);
       }
-      
-      // Refresh conversations list to update last message
+      // Refresh conversations list
       const updatedConversations = await getUserConversations(currentUser.uid);
       setConversations(updatedConversations);
     } catch (error) {
       console.error('Error generating response:', error);
-      
-      // Fallback response if API fails
       const fallbackMessage = { 
         role: 'assistant', 
         content: "I'm having trouble connecting right now. Can we try again in a moment?",
         timestamp: new Date()
       };
-      
       setChatHistory(prevHistory => [...prevHistory, fallbackMessage]);
       await addMessageToConversation(currentUser.uid, activeConversationId, fallbackMessage);
     } finally {
