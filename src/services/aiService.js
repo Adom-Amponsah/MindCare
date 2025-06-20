@@ -657,7 +657,7 @@ It's okay to seek help while respecting our cultural values. Would you like to s
     priority: 'standard'
   };
 };
-con
+
 /**
  * Export the current conversation context as a plain object (for Firestore)
  */
