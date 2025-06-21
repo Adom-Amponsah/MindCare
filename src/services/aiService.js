@@ -7,6 +7,24 @@ const API_TOKEN = import.meta.env.VITE_HUGGINGFACE_API_TOKEN;
 // Model configuration
 const MODEL_URL = "https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1";
 
+async function getModelResponse(message) {
+  try {
+    const response = await fetch(MODEL_URL, {
+      method: "POST",
+      headers: { 
+        "Authorization": `Bearer ${API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ inputs: message })
+    });
+    const result = await response.json();
+    return result[0]?.generated_text || '';
+  } catch (error) {
+    console.error('Error getting model response:', error);
+    return '';
+  }
+}
+
 // Enhanced conversation state management with cultural context
 let conversationContext = {
   emotionalTone: 'neutral',
@@ -224,6 +242,33 @@ const supportResources = {
 };
 
 import { getSuggestedResources } from './resourceService';
+
+// Define queryAI function for Hugging Face API calls
+const queryAI = async (params) => {
+  try {
+    if (!API_TOKEN) {
+      throw new Error('Hugging Face API token is not set. Please configure it in your environment variables as VITE_HUGGINGFACE_API_TOKEN.');
+    }
+
+    const response = await fetch(MODEL_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${API_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(params),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API call failed with status ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data[0]?.generated_text || 'Sorry, I couldn’t generate a response. Can you try again?';  } catch (error) {
+    console.error('Error querying Hugging Face API:', error);
+    throw new Error('Failed to connect to AI model. Please check your API key or internet connection.');
+  }
+};
 
 /**
  * Advanced conversation analyzer to understand context and mood
@@ -559,69 +604,35 @@ const shouldSuggestSupportGroup = (analysis, chatHistory = []) => {
 /**
  * Generate a response from the AI model with advanced context
  */
-export const generateAIResponse = async (userMessage, conversationHistory = []) => {
-  const isFirstMessage = conversationHistory.length === 0;
-  
-  // For first messages, always generate a listening response
-  if (isFirstMessage) {
-    return generateListeningResponse(userMessage);
+export const generateAIResponse = async (message, context) => {
+  // Crisis detection logic (must come first for safety)
+  const crisisAssessment = detectCrisisSituation(message);
+  if (crisisAssessment && crisisAssessment.isActive) {
+    return getCrisisResponse(message);
   }
-  
-  // Calculate sentiment score
-  const sentimentScore = calculateSentimentScore(userMessage);
-  
-  // Update sentiment history
-  updateSentimentHistory(sentimentScore);
-  
-  // Thresholds (only apply after first message)
-  const supportThreshold = 3;
-  const professionalThreshold = 4;
-  const crisisThreshold = 4; // Always 4 for immediate escalation
-  
-  // Crisis escalation - if we detected a crisis, handle immediately
-  const crisisAssessment = detectCrisisSituation(userMessage);
-  if (crisisAssessment.isActive || sentimentScore >= crisisThreshold) {
-    return getCrisisResponse(crisisAssessment);
+
+  // Handle greetings with a custom message or a model prompt
+  if (/^(hi|hello|hey)\b/i.test(message.trim())) {
+    return "Hello! I'm here to listen and support you. How are you feeling today?";
   }
-  
-  // Check for professional help suggestion
-  if (sentimentScore >= professionalThreshold) {
-    return {
-      response: "I'm concerned about what you're sharing. " +
-               "Would you like me to connect you with a professional?",
-      type: 'PROFESSIONAL_HELP_SUGGESTION'
-    };
+
+  // Add a system prompt for context
+  const prompt = `You are a compassionate mental health assistant for Ghanaian users. Respond empathetically and naturally to the following user message:\nUser: ${message}\nAssistant:`;
+
+  let aiResponse = await getModelResponse(prompt);
+
+  // Retry with a slightly different prompt if the first response is empty
+  if (!aiResponse || aiResponse.trim() === '') {
+    const retryPrompt = `Please respond as a caring mental health counselor to this message: \"${message}\"`;
+    aiResponse = await getModelResponse(retryPrompt);
   }
-  
-  // Check for support group suggestion
-  if (sentimentScore >= supportThreshold) {
-    return {
-      response: "It sounds like you might benefit from talking with others " +
-               "who understand. Would you like me to suggest some support groups?",
-      type: 'SUPPORT_GROUP_SUGGESTION',
-      pattern: 'sadness'
-    };
+
+  // Only use generic fallback if both attempts fail
+  if (!aiResponse || aiResponse.trim() === '') {
+    aiResponse = "I'm here to help. Can you tell me a bit more about how you're feeling?";
   }
-  
-  // For normal responses, use the AI model
-  try {
-    const response = await queryAI({
-      inputs: `[CONTEXT] ${JSON.stringify(conversationContext)}\n[USER] ${userMessage}\n[ASSISTANT]`,
-      parameters: {
-        max_new_tokens: 200,
-        temperature: 0.7,
-        top_p: 0.9,
-        repetition_penalty: 1.15
-      }
-    });
-    
-    return {
-      response: response,
-      type: 'GENERATED_RESPONSE'
-    };
-  } catch (error) {
-    return getAdvancedFallbackResponse(userMessage, conversationHistory);
-  }
+
+  return aiResponse;
 };
 
 /**
@@ -643,9 +654,10 @@ const generateListeningResponse = async (message) => {
       type: 'GENERATED_RESPONSE'
     };
   } catch {
+    console.error('Error generating response:', error);
     return {
-      response: "I'm really sorry to hear that. Would you like to talk more about what's been going on?",
-      type: 'CONVERSATIONAL_RESPONSE'
+      response: "I'm sorry, I'm having trouble connecting to the AI service. This could be due to an API issue or network problem. Let's try again in a moment, or if this persists, please check your setup.",
+      type: 'ERROR_RESPONSE'
     };
   }
 };
@@ -733,53 +745,42 @@ const calculateSentimentScore = (message, isFirstMessage = false) => {
  * Enhanced crisis detection with cultural context
  */
 export const detectCrisisSituation = (message) => {
-  if (!message) return false;
+  if (!message) return { isActive: false, type: 'none', level: 'none' };
   
   const lowerMessage = message.toLowerCase();
-  let crisisLevel = 0;
-  let crisisType = null;
   
-  // Calculate sentiment score
-  const sentimentScore = calculateSentimentScore(message);
-  
-  // Update pattern tracker based on score
-  if (sentimentScore >= 3) {
-    conversationContext.engagementMetrics.patternTracker.crisis.count++;
-  } else if (sentimentScore >= 2) {
-    conversationContext.engagementMetrics.patternTracker.sadness.count++;
-  } else if (sentimentScore >= 1) {
-    conversationContext.engagementMetrics.patternTracker.loneliness.count++;
+  // Check for immediate risk keywords
+  if (
+    lowerMessage.includes('suicide') ||
+    lowerMessage.includes('kill myself') ||
+    lowerMessage.includes('end my life') ||
+    lowerMessage.includes('want to die') ||
+    lowerMessage.includes('don\'t want to live')
+  ) {
+    return {
+      isActive: true,
+      type: 'immediate_risk',
+      level: 'severe'
+    };
   }
   
-  // Check immediate risk patterns
-  for (const [type, patterns] of Object.entries(crisisDetectionPatterns)) {
-    for (const category in patterns) {
-      const matches = patterns[category].filter(keyword => 
-        lowerMessage.includes(keyword.toLowerCase())
-      );
-      
-      if (matches.length > 0) {
-        crisisLevel += matches.length;
-        crisisType = type;
-        
-        // Immediate response for suicide-related crisis
-        if (type === 'immediate_risk') {
-          return {
-            isActive: true,
-            level: 'severe',
-            type: crisisType,
-            requiresImmediate: true
-          };
-        }
-      }
-    }
+  // Check for other crisis indicators
+  if (
+    lowerMessage.includes('depressed') ||
+    lowerMessage.includes('hopeless') ||
+    lowerMessage.includes('can\'t go on')
+  ) {
+    return {
+      isActive: true,
+      type: 'mental_health_crisis',
+      level: 'high'
+    };
   }
   
   return {
-    isActive: crisisLevel > 0,
-    level: crisisLevel > 2 ? 'high' : crisisLevel > 0 ? 'moderate' : 'none',
-    type: crisisType,
-    requiresImmediate: false
+    isActive: false,
+    type: 'none',
+    level: 'none'
   };
 };
 
@@ -843,7 +844,7 @@ export async function getCrisisResponse(message) {
   ) {
     response = {
       type: 'supportive',
-      message: "I'm really sorry you're feeling this way. I'm here as a friend to chat with you. Can you tell me more about what's on your mind? I’d love to listen.",
+      message: "I'm really sorry you're feeling this way. I'm here as a friend to chat with you. Can you tell me more about what's on your mind? I'd love to listen.",
       resources: []  // Resources delayed until further confirmation
     };
   } 
@@ -898,7 +899,7 @@ const getAdvancedFallbackResponse = (userMessage, chatHistory = []) => {
     const professionals = resourceSuggestion.resources?.filter(r => r.tags?.includes('professional') || r.tags?.includes('psychologist') || r.tags?.includes('counselor')) || [];
     if (professionals.length > 0) {
       const pro = professionals[0];
-      return `${opener} ${connector} ${followUp}\n\nGiven what you've shared, you might benefit from speaking with a mental health professional like "${pro.name}\" (${pro.title}). ${pro.description ? pro.description : ''} You can contact them at: ${pro.contact}${pro.website ? ` or visit: ${pro.website}` : ''}`;
+      return `${opener} ${connector} ${followUp}\n\nGiven what you've shared, you might benefit from speaking with a mental health professional like "${pro.name}" (${pro.title}). ${pro.description ? pro.description : ''} You can contact them at: ${pro.contact}${pro.website ? ` or visit: ${pro.website}` : ''}`;
     } else {
       return `${opener} ${connector} ${followUp}\n\nGiven what you've shared, you might benefit from speaking with a mental health professional. I can suggest some options if you'd like.`;
     }

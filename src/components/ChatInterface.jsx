@@ -54,7 +54,7 @@ const ChatInterface = ({ onClose }) => {
             // If no history, create welcome message
             const welcomeMessage = {
               type: 'bot',
-              content: "Hello! I'm here to listen and support you. How are you feeling today?",
+              content: "Hello! How can I help?",
               timestamp: new Date()
             }
             
