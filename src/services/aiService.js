@@ -786,7 +786,7 @@ export const detectCrisisSituation = (message) => {
 /**
  * Get culturally appropriate crisis response
  */
-const getCrisisResponse = async (message) => {
+export async function getCrisisResponse(message) {
   const lowerMessage = message.toLowerCase();
   let response;
 
