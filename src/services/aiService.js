@@ -732,7 +732,7 @@ const calculateSentimentScore = (message, isFirstMessage = false) => {
 /**
  * Enhanced crisis detection with cultural context
  */
-const detectCrisisSituation = (message) => {
+export const detectCrisisSituation = (message) => {
   if (!message) return false;
   
   const lowerMessage = message.toLowerCase();
