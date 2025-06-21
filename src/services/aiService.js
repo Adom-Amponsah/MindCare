@@ -25,9 +25,15 @@ let conversationContext = {
       language: 'en', // Support for local languages
       region: null,  // Track user's region for local resource matching
       beliefs: []    // Understanding of cultural/spiritual beliefs
+    },
+    patternTracker: {
+      loneliness: { count: 0, lastTriggered: null },
+      sadness: { count: 0, lastTriggered: null },
+      crisis: { count: 0, lastTriggered: null }
     }
   },
-  sessionStage: 'initial' // initial, exploring, deepening, ready_for_referral
+  sessionStage: 'initial', // initial, exploring, deepening, ready_for_referral
+  sentimentHistory: [] // Track sentiment over time
 };
 
 // Expanded crisis detection patterns
@@ -39,8 +45,6 @@ const crisisDetectionPatterns = {
       'no reason to live', 'better off dead', 'can\'t go on',
       'i wish i could disappear', 'i want to disappear', 'i want to vanish',
       'i don\'t want to be here', 'i want to stop existing',
-      'i want everything to end', 'i want to escape forever',
-      'i want to fade away', 'i want to not exist',
       'i want to go away forever', 'i want to sleep forever',
       'i want to never wake up', 'i want to be gone',
       'i want to leave this world', 'i want to check out',
@@ -91,7 +95,7 @@ const crisisDetectionPatterns = {
     ],
     twi: [
       'me p? s? me wu', 'medi me ho awu',
-      'menp? s? me tra ase', 'mep? s? metena ase'
+      'menp? s? metena ase', 'mep? s? metena ase'
     ],
     pidgin: [
       'i wan die', 'i no wan live', 'i fit kill myself', 'i dey tire for life',
@@ -556,116 +560,303 @@ const shouldSuggestSupportGroup = (analysis, chatHistory = []) => {
  * Generate a response from the AI model with advanced context
  */
 export const generateAIResponse = async (userMessage, conversationHistory = []) => {
-  try {
-    if (!API_TOKEN) {
-      console.error("No API token found. Please set VITE_HUGGINGFACE_API_TOKEN in your .env file");
-      return getAdvancedFallbackResponse(userMessage, conversationHistory);
-    }
-
-    // Analyze the conversation
-    const analysis = analyzeConversation(userMessage, conversationHistory);
-    
-    // Build context from conversation history
-    let contextualHistory = "";
-    if (conversationHistory.length > 0) {
-      const lastFewMessages = conversationHistory.slice(-4); // Last 4 messages for context
-      contextualHistory = lastFewMessages.map(msg => 
-        `${msg.role}: ${msg.content}`
-      ).join('\n');
-    }
-
-    const prompt = {
-      inputs: `<s>[INST] You are an experienced human therapist having a natural conversation. The person has been talking to you and you need to respond naturally.
-
-CONVERSATION CONTEXT:
-${contextualHistory ? `Previous conversation:\n${contextualHistory}\n` : ''}
-
-CURRENT EMOTIONAL STATE: ${analysis.emotion}
-KEY TOPICS: ${analysis.topics.join(', ')}
-CONVERSATION DEPTH: ${conversationContext.sessionStage} exchanges
-
-CRITICAL INSTRUCTIONS:
-1. NEVER use the same opening phrases repeatedly (no "Oh man", "I hear", "That sounds" if used recently)
-2. Respond like a real human therapist - varied, natural, genuine
-3. Use different sentence structures and lengths
-4. Show you're LISTENING by referencing what they said specifically
-5. Ask ONE meaningful follow-up question that digs deeper
-6. Match their emotional intensity appropriately
-7. Be conversational, not clinical
-8. Use natural speech patterns and contractions
-9. VARY your response style - sometimes start with empathy, sometimes with a question, sometimes with reflection
-
-Current message: "${userMessage}"
-
-Respond as a skilled therapist would - naturally, with variety, and with genuine curiosity about their experience. [/INST]`,
-      parameters: {
-        max_new_tokens: 180,
-        temperature: 0.85,
-        top_p: 0.9,
-        do_sample: true,
-        return_full_text: false,
-        repetition_penalty: 1.2
-      }
+  const isFirstMessage = conversationHistory.length === 0;
+  
+  // For first messages, always generate a listening response
+  if (isFirstMessage) {
+    return generateListeningResponse(userMessage);
+  }
+  
+  // Calculate sentiment score
+  const sentimentScore = calculateSentimentScore(userMessage);
+  
+  // Update sentiment history
+  updateSentimentHistory(sentimentScore);
+  
+  // Thresholds (only apply after first message)
+  const supportThreshold = 3;
+  const professionalThreshold = 4;
+  const crisisThreshold = 4; // Always 4 for immediate escalation
+  
+  // Crisis escalation - if we detected a crisis, handle immediately
+  const crisisAssessment = detectCrisisSituation(userMessage);
+  if (crisisAssessment.isActive || sentimentScore >= crisisThreshold) {
+    return getCrisisResponse(crisisAssessment);
+  }
+  
+  // Check for professional help suggestion
+  if (sentimentScore >= professionalThreshold) {
+    return {
+      response: "I'm concerned about what you're sharing. " +
+               "Would you like me to connect you with a professional?",
+      type: 'PROFESSIONAL_HELP_SUGGESTION'
     };
-    
-    const response = await fetch(MODEL_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${API_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(prompt),
+  }
+  
+  // Check for support group suggestion
+  if (sentimentScore >= supportThreshold) {
+    return {
+      response: "It sounds like you might benefit from talking with others " +
+               "who understand. Would you like me to suggest some support groups?",
+      type: 'SUPPORT_GROUP_SUGGESTION',
+      pattern: 'sadness'
+    };
+  }
+  
+  // For normal responses, use the AI model
+  try {
+    const response = await queryAI({
+      inputs: `[CONTEXT] ${JSON.stringify(conversationContext)}\n[USER] ${userMessage}\n[ASSISTANT]`,
+      parameters: {
+        max_new_tokens: 200,
+        temperature: 0.7,
+        top_p: 0.9,
+        repetition_penalty: 1.15
+      }
     });
-
-    if (!response.ok) {
-      console.error(`API error: ${response.status} ${response.statusText}`);
-      return getAdvancedFallbackResponse(userMessage, conversationHistory);
-    }
-
-    const data = await response.json();
-    let aiResponse = "";
     
-    if (Array.isArray(data) && data[0]?.generated_text) {
-      aiResponse = data[0].generated_text;
-    } else if (typeof data === 'object' && data.generated_text) {
-      aiResponse = data.generated_text;
-    } else {
-      console.error("Unexpected response format:", data);
-      return getAdvancedFallbackResponse(userMessage, conversationHistory);
-    }
-    
-    // --- SUPPORT GROUP SUGGESTION LOGIC (pattern-based) ---
-    if (shouldSuggestSupportGroup(analysis, conversationHistory)) {
-      const resourceSuggestion = getSuggestedResources([...conversationHistory, { role: 'user', content: userMessage }]);
-      const supportGroups = resourceSuggestion.resources?.filter(r => r.tags?.includes('support group')) || [];
-      if (supportGroups.length > 0) {
-        const group = supportGroups[0];
-        aiResponse += `\n\nBy the way, sometimes it helps to talk to others who understand what you're going through. Would you be interested in joining a support group like "${group.title}"? ${group.description}${group.url ? ` You can join here: ${group.url}` : ''}`;
-      } else {
-        aiResponse += `\n\nBy the way, sometimes it helps to talk to others who understand what you're going through. Would you be interested in joining a support group? I can suggest some options if you'd like.`;
-      }
-    }
-    // --- END SUPPORT GROUP SUGGESTION LOGIC ---
-    
-    // --- PROFESSIONAL HELP SUGGESTION LOGIC ---
-    if (shouldSuggestProfessionalHelp(analysis, conversationHistory)) {
-      const resourceSuggestion = getSuggestedResources([...conversationHistory, { role: 'user', content: userMessage }]);
-      const professionals = resourceSuggestion.resources?.filter(r => r.tags?.includes('professional') || r.tags?.includes('psychologist') || r.tags?.includes('counselor')) || [];
-      if (professionals.length > 0) {
-        const pro = professionals[0];
-        aiResponse += `\n\nGiven what you've shared, you might benefit from speaking with a mental health professional like "${pro.name}\" (${pro.title}). ${pro.description ? pro.description : ''} You can contact them at: ${pro.contact}${pro.website ? ` or visit: ${pro.website}` : ''}`;
-      } else {
-        aiResponse += `\n\nGiven what you've shared, you might benefit from speaking with a mental health professional. I can suggest some options if you'd like.`;
-      }
-    }
-    // --- END PROFESSIONAL HELP SUGGESTION LOGIC ---
-    
-    return aiResponse.trim();
-    
+    return {
+      response: response,
+      type: 'GENERATED_RESPONSE'
+    };
   } catch (error) {
-    console.error("Error generating AI response:", error);
     return getAdvancedFallbackResponse(userMessage, conversationHistory);
   }
+};
+
+/**
+ * Generate a listening response for the first message
+ */
+const generateListeningResponse = async (message) => {
+  try {
+    const response = await queryAI({
+      inputs: `[USER FIRST MESSAGE] ${message}\n[ASSISTANT should respond with empathy and invite sharing]`,
+      parameters: {
+        max_new_tokens: 150,
+        temperature: 0.8,
+        top_p: 0.95,
+        repetition_penalty: 1.1
+      }
+    });
+    return {
+      response: response,
+      type: 'GENERATED_RESPONSE'
+    };
+  } catch {
+    return {
+      response: "I'm really sorry to hear that. Would you like to talk more about what's been going on?",
+      type: 'CONVERSATIONAL_RESPONSE'
+    };
+  }
+};
+
+/**
+ * Enhanced keyword lists with cultural weighting
+ */
+const sentimentKeywords = {
+  loneliness: [
+    'lonely', 'alone', 'isolated', 'no one to talk to', 'no friends',
+    'feeling disconnected', 'socially awkward', 'shunned', 'ostracized',
+    'unwanted', 'unloved', 'ignored', 'left out', 'friendless', 'by myself',
+    // Ghanaian phrases
+    'me ho ye', 'me nni obiara', 'me nni adamfo', 'me nni kasa',
+    'me nni nkurofo', 'me nni nipa', 'me nni nipa biara',
+    'me nni nipa biara nkasa', 'me nni nipa biara nka me ho',
+    // Pidgin phrases
+    'i dey alone', 'i no get person', 'i dey by myself'
+  ],
+  sadness: [
+    'sad', 'depressed', 'unhappy', 'miserable', 'down', 'low',
+    'gloomy', 'heartbroken', 'disheartened', 'dejected', 'despondent',
+    'melancholy', 'despair', 'hopeless', 'tearful', 'weepy', 'grief',
+    'sorrow', 'regret', 'dismal', 'blue', 'heavy-hearted',
+    // Ghanaian phrases
+    'me haw', 'me haw paa', 'me ho ye yaw', 'me ho ye hu',
+    'me ho ye awer?how', 'me ho ye den', 'me ho ye nk?n?',
+    // Pidgin phrases
+    'i dey sad', 'my heart dey pain', 'i dey down', 'i dey low'
+  ],
+  crisis: [
+    'suicide', 'kill myself', 'end my life', 'want to die',
+    'harm myself', 'hurt myself', 'self harm',
+    'no reason to live', 'better off dead', 'can\'t go on',
+    // Ghanaian phrases
+    'me p? s? me wu', 'medi me ho awu',
+    'menp? s? metena ase', 'mep? s? metena ase',
+    'me p? s? me k? me ho', 'me p? s? me k? me ho awu',
+    // Pidgin phrases
+    'i wan die', 'i no wan live', 'i fit kill myself', 'i dey tire for life',
+    'i wan end am', 'i wan commot', 'i no wan exist again'
+  ]
+};
+
+/**
+ * Enhanced calculateSentimentScore with contextual weighting
+ */
+const calculateSentimentScore = (message, isFirstMessage = false) => {
+  let score = 0;
+  const lowerMessage = message.toLowerCase();
+  
+  // Check for sentiment keywords with weighting
+  for (const [emotion, keywords] of Object.entries(sentimentKeywords)) {
+    for (const keyword of keywords) {
+      if (lowerMessage.includes(keyword)) {
+        // Apply higher weight for Ghanaian phrases
+        const weight = keyword.includes(' ') ? 2 : 1;
+        
+        // Increase weight for first-person phrases
+        const personalWeight = (keyword.includes('me ') || keyword.includes('i ')) ? 2 : 1;
+        
+        // Apply score
+        score += emotion === 'crisis' ? 3 * weight * personalWeight : 1 * weight * personalWeight;
+      }
+    }
+  }
+  
+  // Add additional scoring based on sentiment indicators
+  if (message.includes('😭') || message.includes('💔')) score += 2;
+  if (message.includes('😢') || message.includes('😞')) score += 1;
+  
+  // Add score for repeated phrases
+  const repeatedPhrases = message.match(/(\b\w+\b)(?:\s+\1)+/gi) || [];
+  score += repeatedPhrases.length * 0.5;
+  
+  // Cap scores for first messages
+  if (isFirstMessage) {
+    score = Math.min(score, 3.5);
+  }
+  
+  return score;
+};
+
+/**
+ * Enhanced crisis detection with cultural context
+ */
+const detectCrisisSituation = (message) => {
+  if (!message) return false;
+  
+  const lowerMessage = message.toLowerCase();
+  let crisisLevel = 0;
+  let crisisType = null;
+  
+  // Calculate sentiment score
+  const sentimentScore = calculateSentimentScore(message);
+  
+  // Update pattern tracker based on score
+  if (sentimentScore >= 3) {
+    conversationContext.engagementMetrics.patternTracker.crisis.count++;
+  } else if (sentimentScore >= 2) {
+    conversationContext.engagementMetrics.patternTracker.sadness.count++;
+  } else if (sentimentScore >= 1) {
+    conversationContext.engagementMetrics.patternTracker.loneliness.count++;
+  }
+  
+  // Check immediate risk patterns
+  for (const [type, patterns] of Object.entries(crisisDetectionPatterns)) {
+    for (const category in patterns) {
+      const matches = patterns[category].filter(keyword => 
+        lowerMessage.includes(keyword.toLowerCase())
+      );
+      
+      if (matches.length > 0) {
+        crisisLevel += matches.length;
+        crisisType = type;
+        
+        // Immediate response for suicide-related crisis
+        if (type === 'immediate_risk') {
+          return {
+            isActive: true,
+            level: 'severe',
+            type: crisisType,
+            requiresImmediate: true
+          };
+        }
+      }
+    }
+  }
+  
+  return {
+    isActive: crisisLevel > 0,
+    level: crisisLevel > 2 ? 'high' : crisisLevel > 0 ? 'moderate' : 'none',
+    type: crisisType,
+    requiresImmediate: false
+  };
+};
+
+/**
+ * Get culturally appropriate crisis response
+ */
+const getCrisisResponse = async (message) => {
+  const lowerMessage = message.toLowerCase();
+  let response;
+
+  // Check for suicidal intent first - highest priority
+  if (
+    lowerMessage.includes('suicide') ||
+    lowerMessage.includes('kill myself') ||
+    lowerMessage.includes('end my life') ||
+    lowerMessage.includes('don\'t want to live') ||
+    lowerMessage.includes('want to die')
+  ) {
+    response = {
+      type: 'crisis',
+      message: "I'm so sorry you're feeling this way. I want to help. Please call this suicide prevention hotline immediately: 1-800-273-8255 (National Suicide Prevention Lifeline). They are available 24/7 and can provide support. You are not alone.",
+      resources: [
+        {
+          name: 'National Suicide Prevention Lifeline',
+          phone: '1-800-273-8255',
+          website: 'https://suicidepreventionlifeline.org/'
+        }
+      ]
+    };
+  } 
+  // Check for depression or serious mental health concerns
+  else if (
+    lowerMessage.includes('depressed') ||
+    lowerMessage.includes('depression') ||
+    lowerMessage.includes('hopeless') ||
+    lowerMessage.includes('no hope') ||
+    lowerMessage.includes('can\'t go on')
+  ) {
+    response = {
+      type: 'serious',
+      message: "I hear you, and I know how heavy this can feel. I've struggled too, and I'm here to talk. Can you share more about what's been weighing on you?",
+      resources: [
+        {
+          name: 'Psychology Today - Find a Therapist',
+          website: 'https://www.psychologytoday.com/us/therapists'
+        },
+        {
+          name: 'National Alliance on Mental Illness',
+          phone: '1-800-950-6264',
+          website: 'https://www.nami.org/'
+        }
+      ]
+    };
+  } 
+  // Check for sadness or loneliness - initial response without resources
+  else if (
+    lowerMessage.includes('sad') ||
+    lowerMessage.includes('lonely') ||
+    lowerMessage.includes('alone') ||
+    lowerMessage.includes('unhappy')
+  ) {
+    response = {
+      type: 'supportive',
+      message: "I'm really sorry you're feeling this way. I'm here as a friend to chat with you. Can you tell me more about what's on your mind? I’d love to listen.",
+      resources: []  // Resources delayed until further confirmation
+    };
+  } 
+  // Default response for other crisis-related messages
+  else {
+    response = {
+      type: 'general',
+      message: "I'm here for you. Can you tell me more about how you're feeling? I want to understand and provide the best support I can.",
+      resources: []
+    };
+  }
+
+  return response;
 };
 
 /**
@@ -722,126 +913,41 @@ const getAdvancedFallbackResponse = (userMessage, chatHistory = []) => {
 };
 
 /**
- * Reset conversation context (for new sessions)
+ * Track sentiment over time
  */
-export const resetConversationContext = () => {
-  conversationContext = {
-    emotionalTone: 'neutral',
-    keyTopics: [],
-    responseHistory: [],
-    userMood: 'unknown',
-    engagementMetrics: {
-      topicsExplored: new Set(),
-      emotionalDepth: 0,
-      userOpenness: 0,
-      readinessForHelp: 0,
-      crisisIndicators: [],
-      lastTopicResolution: null,
-      spiritualContext: null,
-      culturalContext: {
-        language: 'en',
-        region: null,
-        beliefs: []
-      }
-    },
-    sessionStage: 'initial'
-  };
+const updateSentimentHistory = (score) => {
+  if (!conversationContext.sentimentHistory) {
+    conversationContext.sentimentHistory = [];
+  }
+  
+  conversationContext.sentimentHistory.push({
+    timestamp: new Date(),
+    score: score
+  });
+  
+  // Keep only the last 10 entries
+  if (conversationContext.sentimentHistory.length > 10) {
+    conversationContext.sentimentHistory.shift();
+  }
 };
 
 /**
- * Get conversation insights (for debugging/analytics)
+ * Detect escalating distress
  */
-export const getConversationInsights = () => {
-  return conversationContext;
-};
-
-/**
- * Enhanced crisis detection with cultural context
- */
-export const detectCrisisSituation = (message) => {
-  if (!message) return false;
-  
-  const lowerMessage = message.toLowerCase();
-  let crisisLevel = 0;
-  let crisisType = null;
-  
-  // Check immediate risk patterns
-  for (const [type, patterns] of Object.entries(crisisDetectionPatterns)) {
-    for (const category in patterns) {
-      const matches = patterns[category].filter(keyword => 
-        lowerMessage.includes(keyword.toLowerCase())
-      );
-      
-      if (matches.length > 0) {
-        crisisLevel += matches.length;
-        crisisType = type;
-        
-        // Immediate response for suicide-related crisis
-        if (type === 'immediate_risk') {
-          return {
-            isActive: true,
-            level: 'severe',
-            type: crisisType,
-            requiresImmediate: true
-          };
-        }
-      }
-    }
+const detectEscalatingDistress = () => {
+  if (!conversationContext.sentimentHistory || conversationContext.sentimentHistory.length < 3) {
+    return false;
   }
   
-  return {
-    isActive: crisisLevel > 0,
-    level: crisisLevel > 2 ? 'high' : crisisLevel > 0 ? 'moderate' : 'none',
-    type: crisisType,
-    requiresImmediate: false
-  };
-};
-
-/**
- * Get culturally appropriate crisis response
- */
-export const getCrisisResponse = (crisisAssessment) => {
-  const { type, level } = crisisAssessment;
+  const lastThree = conversationContext.sentimentHistory.slice(-3);
+  const trend = lastThree.map(entry => entry.score);
   
-  // Immediate suicide risk response
-  if (type === 'immediate_risk' && level === 'severe') {
-    return {
-      message: `I am deeply concerned about what you're sharing. Your life is precious and valuable. 
-I need you to know that help is available right now. Can you please reach out to one of these support services immediately? 
-They are here to help you 24/7 and understand what you're going through.`,
-      resources: supportResources.immediate_crisis,
-      priority: 'urgent'
-    };
+  // Check for increasing scores
+  if (trend[0] < trend[1] && trend[1] < trend[2]) {
+    return true;
   }
   
-  // Spiritual distress response
-  if (type === 'spiritual_distress') {
-  return {
-      message: `I hear that you're experiencing spiritual challenges. This is a very real and valid concern. 
-Would you like to connect with someone who understands both spiritual and emotional healing?`,
-      resources: {
-        ...supportResources.spiritual_support,
-        ...supportResources.professional_help
-      },
-      priority: 'high'
-    };
-  }
-  
-  // Cultural pressure response
-  if (type === 'cultural_pressure') {
-    return {
-      message: `I understand the weight of cultural expectations and community judgment. 
-It's okay to seek help while respecting our cultural values. Would you like to speak with someone who understands these challenges?`,
-      resources: supportResources.professional_help,
-      priority: 'moderate'
-    };
-  }
-  
-  return {
-    message: `I'm here to listen and support you. Would you like to tell me more about what you're experiencing?`,
-    resources: null,
-    priority: 'standard'
-  };
+  return false;
 };
 
 /**
@@ -866,4 +972,44 @@ export const importConversationContext = (ctx) => {
     ctx.engagementMetrics.topicsExplored = new Set(ctx.engagementMetrics.topicsExplored);
   }
   conversationContext = ctx;
+};
+
+/**
+ * Reset conversation context (for new sessions)
+ */
+export const resetConversationContext = () => {
+  conversationContext = {
+    emotionalTone: 'neutral',
+    keyTopics: [],
+    responseHistory: [],
+    userMood: 'unknown',
+    engagementMetrics: {
+      topicsExplored: new Set(),
+      emotionalDepth: 0,
+      userOpenness: 0,
+      readinessForHelp: 0,
+      crisisIndicators: [],
+      lastTopicResolution: null,
+      spiritualContext: null,
+      culturalContext: {
+        language: 'en',
+        region: null,
+        beliefs: []
+      },
+      patternTracker: {
+        loneliness: { count: 0, lastTriggered: null },
+        sadness: { count: 0, lastTriggered: null },
+        crisis: { count: 0, lastTriggered: null }
+      }
+    },
+    sessionStage: 'initial',
+    sentimentHistory: []
+  };
+};
+
+/**
+ * Get conversation insights (for debugging/analytics)
+ */
+export const getConversationInsights = () => {
+  return conversationContext;
 };

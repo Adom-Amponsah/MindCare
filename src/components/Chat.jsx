@@ -25,6 +25,7 @@ const Chat = ({ onClose }) => {
   const [editingTitle, setEditingTitle] = useState(null);
   const [newTitle, setNewTitle] = useState('');
   const [showDrawer, setShowDrawer] = useState(false);
+  const [resourceSuggestions, setResourceSuggestions] = useState([]);
   const chatContainerRef = useRef(null);
   const [conversationContext, setConversationContext] = useState(null);
 
@@ -150,7 +151,7 @@ const Chat = ({ onClose }) => {
       // Crisis detection
       const crisisAssessment = detectCrisisSituation(message);
       if (crisisAssessment && crisisAssessment.isActive) {
-        const crisisResponse = getCrisisResponse(crisisAssessment);
+        const crisisResponse = await getCrisisResponse(message);
         const assistantMessage = { 
           role: 'assistant', 
           content: crisisResponse.message,
@@ -173,14 +174,51 @@ const Chat = ({ onClose }) => {
         // Get resource suggestions
         const updatedChatHistory = [...chatHistory, userMessage];
         const resourceSuggestion = getSuggestedResources(updatedChatHistory);
+        let assistantMessageContent = typeof aiResponse === 'string' ? aiResponse : aiResponse.response;
+        let resourcesToSuggest = [];
+
+        // Check for support group suggestions
+        if (aiResponse.type === 'SUPPORT_GROUP_SUGGESTION') {
+          // Show support group resources
+          const resources = await getSuggestedResources({
+            category: 'support_group',
+            pattern: aiResponse.pattern
+          });
+          
+          resourcesToSuggest = resources;
+        } else if (aiResponse.type === 'crisis') {
+          resourcesToSuggest = aiResponse.resources;
+        } else if (aiResponse.type === 'serious') {
+          // Only suggest resources for depression after 7 user messages
+          const userMessageCount = updatedChatHistory.filter(msg => msg.role === 'user').length;
+          if (userMessageCount >= 7) {
+            assistantMessageContent += " I've been there too, and I know it's tough. When you're ready, I can suggest some professional help resources that might make a difference.";
+            resourcesToSuggest = aiResponse.resources;
+          }
+        } else if (aiResponse.type === 'supportive') {
+          // Only suggest resources for sadness/loneliness after 6 user messages
+          const userMessageCount = updatedChatHistory.filter(msg => msg.role === 'user').length;
+          if (userMessageCount >= 6) {
+            assistantMessageContent += " You can also join these support groups to help connect you with people going through what you're experiencing.";
+            resourcesToSuggest = [
+              {
+                name: '7 Cups - Online Support Groups',
+                website: 'https://www.7cups.com/support-groups/'
+              }
+            ];
+          }
+        }
+
         const assistantMessage = { 
           role: 'assistant', 
-          content: aiResponse,
+          content: assistantMessageContent,
           timestamp: new Date(),
-          resourceSuggestion: resourceSuggestion.shouldSuggest ? resourceSuggestion : null
+          resourceSuggestion: resourceSuggestion.shouldSuggest ? resourceSuggestion : null,
+          resources: resourcesToSuggest
         };
         setChatHistory(prevHistory => [...prevHistory, assistantMessage]);
         await addMessageToConversation(currentUser.uid, activeConversationId, assistantMessage);
+        setResourceSuggestions(resourcesToSuggest);
       }
       // Refresh conversations list
       const updatedConversations = await getUserConversations(currentUser.uid);
@@ -490,6 +528,19 @@ const Chat = ({ onClose }) => {
                       <div className="w-2 h-2 rounded-full bg-white animate-bounce" style={{ animationDelay: '0.4s' }}></div>
                     </div>
                   </div>
+                </div>
+              )}
+              
+              {resourceSuggestions.length > 0 && (
+                <div className="mt-4">
+                  <h3 className="font-bold text-lg mb-2">Support Group Suggestions</h3>
+                  {resourceSuggestions.map((resource, idx) => (
+                    <ResourceSuggestion 
+                      key={idx} 
+                      resource={resource} 
+                      onSelect={handleResourceSelect} 
+                    />
+                  ))}
                 </div>
               )}
             </>
