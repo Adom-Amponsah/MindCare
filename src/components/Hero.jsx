@@ -149,7 +149,7 @@ const Hero = ({ onStartChat }) => {
               <span className="text-[#fbbf24] inline-block breathe">Chale!</span>
             </h1>
             <p className="text-base sm:text-lg md:text-xl text-white/90 font-inter max-w-2xl mx-auto leading-relaxed px-4">
-              Chat in Twi, Pidgin, or English like you dey yarn with a pal. 
+              Chat in Twi, Pidgin, or English like you dey talk with your paddy. 
               <br className="hidden md:block" />
               <span className="font-medium text-white">No shame, just help.</span>
             </p>
