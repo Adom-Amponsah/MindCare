@@ -8,7 +8,8 @@ import {
   addMessageToConversation,
   updateConversationTitle
 } from '../firebase/userService';
-import { generateAIResponse, detectCrisisSituation, getCrisisResponse } from '../services/aiService';
+import { generateAIResponse, resetConversationContext } from '../services/aiService';
+import { detectCrisisSituation, getCrisisResponse } from '../services/crisisService';
 import { getSuggestedResources } from '../services/resourceService';
 import ResourceSuggestion from './ResourceSuggestion';
 
@@ -199,6 +200,7 @@ const Chat = ({ onClose }) => {
   };
 
   const handleNewConversation = async () => {
+    resetConversationContext();  // Reset the AI conversation context
     if (!currentUser) return;
     
     try {

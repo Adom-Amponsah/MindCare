@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { saveChatMessage, getChatHistory, getUserData, initializeUserCollections } from '../firebase/userService'
 import { generateAIResponse, detectCrisisSituation, getCrisisResponse } from '../services/aiService'
+import { detectCrisisSituation as detectCrisis, getCrisisResponse as getCrisis } from '../services/crisisService'
 
 const ChatInterface = ({ onClose }) => {
   const { currentUser } = useAuth()
@@ -111,9 +112,14 @@ const ChatInterface = ({ onClose }) => {
     await saveChatMessage(currentUser.uid, firestoreUserMsg)
 
     // Check for crisis situation
-    if (detectCrisisSituation(input)) {
-      const crisisResponse = getCrisisResponse()
+    if (detectCrisis(input)) {
+      setMessages(prev => [...prev, 
+        { type: 'bot', content: getCrisis().message, timestamp: new Date() },
+        { type: 'bot', content: "Here are resources that might help:", timestamp: new Date() }
+      ]);
       setShowEmergency(true)
+      
+      const crisisResponse = getCrisisResponse()
       
       const botMessage = {
         type: 'bot',
