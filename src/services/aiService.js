@@ -365,30 +365,30 @@ const getContextualOpener = (analysis) => {
       break;
     
     case 'exploring':
-      switch (emotion) {
-        case 'frustrated':
-          openers = [
+    switch (emotion) {
+      case 'frustrated':
+        openers = [
             "That level of frustration makes so much sense given what you're dealing with.",
             "I can really hear the frustration in what you're sharing.",
             "It's completely understandable to feel frustrated about this."
-          ];
-          break;
-        case 'sad':
-          openers = [
+        ];
+        break;
+      case 'sad':
+        openers = [
             "The sadness in your words really comes through.",
             "That sounds incredibly painful to deal with.",
             "I can feel how much this is affecting you."
-          ];
-          break;
-        case 'lonely':
-          openers = [
+        ];
+        break;
+      case 'lonely':
+        openers = [
             "That sense of loneliness you're describing sounds really heavy.",
             "It must be so hard feeling this disconnected.",
             "Feeling alone like this can be really overwhelming."
-          ];
-          break;
-        default:
-          openers = [
+        ];
+        break;
+      default:
+        openers = [
             "I'm really trying to understand your experience.",
             "The way you describe this helps me understand better.",
             "Thank you for helping me understand what this is like for you."
@@ -397,14 +397,14 @@ const getContextualOpener = (analysis) => {
       break;
     
     case 'deepening':
-      if (needsValidation) {
-        openers = [
+    if (needsValidation) {
+      openers = [
           "Your feelings about this are completely valid.",
           "I want you to know that your reaction makes perfect sense.",
           "Anyone in your situation would feel this way.",
           "These feelings you're having are so important to acknowledge."
-        ];
-      } else {
+      ];
+    } else {
         openers = [
           "As we talk more, I'm understanding better how this affects you.",
           "The more you share, the more I see how complex this situation is.",
@@ -461,7 +461,7 @@ const getFollowUpQuestion = (analysis, userMessage) => {
   }
   
   if (stage === 'exploring') {
-    if (needsValidation && topics.includes('family')) {
+  if (needsValidation && topics.includes('family')) {
       const questions = [
         "How do those words make you feel when they say that to you?",
         "What would you want them to understand about how this affects you?",
@@ -511,6 +511,45 @@ const getFollowUpQuestion = (analysis, userMessage) => {
   ];
   
   return questions[Math.floor(Math.random() * questions.length)];
+};
+
+/**
+ * Helper: Should suggest professional help?
+ */
+const shouldSuggestProfessionalHelp = (analysis, chatHistory = []) => {
+  // Suggest if emotional intensity is high, or if user has already been offered a support group, or if they ask for more help
+  const highIntensity = analysis.intensity === 'high';
+  const directRequest = /therapist|counselor|professional|doctor|see someone|need more help|need real help|need a specialist|need a psychologist|need a psychiatrist|need to talk to someone/i.test(
+    chatHistory.map(m => m.content).join(' ')
+  );
+  // If support group was already suggested in the last 3 messages
+  const recentSupportGroupSuggestion = chatHistory.slice(-3).some(m =>
+    m.role === 'assistant' && m.content && m.content.toLowerCase().includes('support group')
+  );
+  return highIntensity || directRequest || recentSupportGroupSuggestion;
+};
+
+/**
+ * Helper: Should suggest support group based on pattern (not just first mention)
+ */
+const shouldSuggestSupportGroup = (analysis, chatHistory = []) => {
+  // Look for at least 2 separate user messages with sadness/loneliness/anxiety
+  const supportEmotions = ['sad', 'lonely', 'anxious'];
+  let count = 0;
+  for (const msg of chatHistory) {
+    if (msg.role === 'user') {
+      const lower = msg.content.toLowerCase();
+      if (supportEmotions.some(e => lower.includes(e))) {
+        count++;
+      }
+    }
+  }
+  // Also check the current message
+  if (supportEmotions.includes(analysis.emotion)) {
+    count++;
+  }
+  // Suggest only if pattern (2+ mentions)
+  return count >= 2 && analysis.intensity !== 'high';
 };
 
 /**
@@ -595,19 +634,31 @@ Respond as a skilled therapist would - naturally, with variety, and with genuine
       return getAdvancedFallbackResponse(userMessage, conversationHistory);
     }
     
-    // --- SUPPORT GROUP SUGGESTION LOGIC ---
-    // If the user is sad/lonely/anxious (not crisis), append a real support group suggestion
-    if (shouldSuggestSupportGroup(analysis)) {
+    // --- SUPPORT GROUP SUGGESTION LOGIC (pattern-based) ---
+    if (shouldSuggestSupportGroup(analysis, conversationHistory)) {
       const resourceSuggestion = getSuggestedResources([...conversationHistory, { role: 'user', content: userMessage }]);
       const supportGroups = resourceSuggestion.resources?.filter(r => r.tags?.includes('support group')) || [];
       if (supportGroups.length > 0) {
         const group = supportGroups[0];
-        aiResponse += `\n\nBy the way, sometimes it helps to talk to others who understand what you're going through. Would you be interested in joining a support group like \"${group.title}\"? ${group.description}${group.url ? ` You can join here: ${group.url}` : ''}`;
+        aiResponse += `\n\nBy the way, sometimes it helps to talk to others who understand what you're going through. Would you be interested in joining a support group like "${group.title}"? ${group.description}${group.url ? ` You can join here: ${group.url}` : ''}`;
       } else {
         aiResponse += `\n\nBy the way, sometimes it helps to talk to others who understand what you're going through. Would you be interested in joining a support group? I can suggest some options if you'd like.`;
       }
     }
     // --- END SUPPORT GROUP SUGGESTION LOGIC ---
+    
+    // --- PROFESSIONAL HELP SUGGESTION LOGIC ---
+    if (shouldSuggestProfessionalHelp(analysis, conversationHistory)) {
+      const resourceSuggestion = getSuggestedResources([...conversationHistory, { role: 'user', content: userMessage }]);
+      const professionals = resourceSuggestion.resources?.filter(r => r.tags?.includes('professional') || r.tags?.includes('psychologist') || r.tags?.includes('counselor')) || [];
+      if (professionals.length > 0) {
+        const pro = professionals[0];
+        aiResponse += `\n\nGiven what you've shared, you might benefit from speaking with a mental health professional like "${pro.name}\" (${pro.title}). ${pro.description ? pro.description : ''} You can contact them at: ${pro.contact}${pro.website ? ` or visit: ${pro.website}` : ''}`;
+      } else {
+        aiResponse += `\n\nGiven what you've shared, you might benefit from speaking with a mental health professional. I can suggest some options if you'd like.`;
+      }
+    }
+    // --- END PROFESSIONAL HELP SUGGESTION LOGIC ---
     
     return aiResponse.trim();
     
@@ -615,15 +666,6 @@ Respond as a skilled therapist would - naturally, with variety, and with genuine
     console.error("Error generating AI response:", error);
     return getAdvancedFallbackResponse(userMessage, conversationHistory);
   }
-};
-
-/**
- * Add helper to check if support group suggestion is appropriate
- */
-const shouldSuggestSupportGroup = (analysis) => {
-  // Suggest support group for sadness, loneliness, or mild distress (not crisis)
-  const supportEmotions = ['sad', 'lonely', 'anxious'];
-  return supportEmotions.includes(analysis.emotion) && analysis.intensity !== 'high';
 };
 
 /**
@@ -647,9 +689,8 @@ const getAdvancedFallbackResponse = (userMessage, chatHistory = []) => {
   
   const connector = connectors[Math.floor(Math.random() * connectors.length)];
   
-  // Suggest support group if appropriate
-  if (shouldSuggestSupportGroup(analysis)) {
-    // Use chatHistory to get a real support group suggestion
+  // Suggest support group if appropriate (pattern-based)
+  if (shouldSuggestSupportGroup(analysis, chatHistory)) {
     const resourceSuggestion = getSuggestedResources([...chatHistory, { role: 'user', content: userMessage }]);
     const supportGroups = resourceSuggestion.resources?.filter(r => r.tags?.includes('support group')) || [];
     if (supportGroups.length > 0) {
@@ -657,6 +698,18 @@ const getAdvancedFallbackResponse = (userMessage, chatHistory = []) => {
       return `${opener} ${connector} ${followUp}\n\nBy the way, sometimes it helps to talk to others who understand what you're going through. Would you be interested in joining a support group like "${group.title}"? ${group.description}${group.url ? ` You can join here: ${group.url}` : ''}`;
     } else {
       return `${opener} ${connector} ${followUp}\n\nBy the way, sometimes it helps to talk to others who understand what you're going through. Would you be interested in joining a support group? I can suggest some options if you'd like.`;
+    }
+  }
+  
+  // Escalate to professional help if needed
+  if (shouldSuggestProfessionalHelp(analysis, chatHistory)) {
+    const resourceSuggestion = getSuggestedResources([...chatHistory, { role: 'user', content: userMessage }]);
+    const professionals = resourceSuggestion.resources?.filter(r => r.tags?.includes('professional') || r.tags?.includes('psychologist') || r.tags?.includes('counselor')) || [];
+    if (professionals.length > 0) {
+      const pro = professionals[0];
+      return `${opener} ${connector} ${followUp}\n\nGiven what you've shared, you might benefit from speaking with a mental health professional like "${pro.name}\" (${pro.title}). ${pro.description ? pro.description : ''} You can contact them at: ${pro.contact}${pro.website ? ` or visit: ${pro.website}` : ''}`;
+    } else {
+      return `${opener} ${connector} ${followUp}\n\nGiven what you've shared, you might benefit from speaking with a mental health professional. I can suggest some options if you'd like.`;
     }
   }
   
@@ -763,7 +816,7 @@ They are here to help you 24/7 and understand what you're going through.`,
   
   // Spiritual distress response
   if (type === 'spiritual_distress') {
-    return {
+  return {
       message: `I hear that you're experiencing spiritual challenges. This is a very real and valid concern. 
 Would you like to connect with someone who understands both spiritual and emotional healing?`,
       resources: {
